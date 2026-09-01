@@ -293,6 +293,9 @@
   .pickup { font-family: var(--hand); font-size: 1.3rem; color: var(--rose); line-height: 1.5; margin: 0 0 var(--s3); }
   .ps { font-family: var(--body); font-style: italic; color: var(--mute); margin: 0; }
 
+  .sent { font-family: var(--hand); font-size: 1.08rem; color: var(--mute); margin: var(--s3) 0 0; }
+  .sent.ok { color: var(--rose); }
+
   .seal {
     width: 74px; height: 74px; border-radius: 50%;
     background: radial-gradient(circle at 34% 30%, #C4436A, var(--rose) 55%, #7E2039 100%);
@@ -406,6 +409,11 @@
 
     <p class="pickup" id="pickup-line">Come to my place one hour before — that's <strong id="out-pickup-2">—</strong>. Don't be late, I'll be ready and waiting. 💌</p>
     <p class="ps">P.S. — no backing out now, it's sealed in wax.</p>
+
+    <p class="sent" id="sent-status" hidden></p>
+    <div class="footer-row" id="sent-actions" style="margin-top: var(--s2)" hidden>
+      <button class="btn ghost" id="send-manual" type="button">📩 Send it to her</button>
+    </div>
 
     <div class="footer-row" style="margin-top: var(--s4)">
       <button class="back" id="back-pick" type="button">change the day or time</button>
@@ -627,6 +635,12 @@
 
     show("done");
     burst();
+
+    sendPlan({
+      day: dateText,
+      plan: picked.slot.label + " \u2014 " + picked.slot.time,
+      pickup: pickupText
+    });
   });
 
   document.getElementById("open-invite").addEventListener("click", function () { show("invite"); });
@@ -634,6 +648,109 @@
     tip.classList.remove("show");
     show("letter");
   });
+  /* ---------------------------------------------------------------
+     Telling her the answer
+
+     A plain HTML file has no way to send mail by itself, so this uses
+     EmailJS — it holds the Gmail connection, the page just asks it to send.
+     NEVER put a Gmail password in here; it would be readable by anyone.
+
+     To make it send from pghuguskar10@gmail.com:
+       1. emailjs.com → sign up as pghuguskar10@gmail.com
+       2. Email Services → connect Gmail (that account) → copy the Service ID
+       3. Email Templates → new template → To: ghuguskarpriya@gmail.com,
+          body can use {{answer}} {{plan_day}} {{plan_time}} {{pickup_time}}
+          → copy the Template ID
+       4. Account → General → copy the Public Key (it is meant to be public)
+       5. Paste all three below.
+
+     Left blank, the page instead offers a button that opens a ready-made
+     email — works everywhere, no signup, just needs one tap to send.
+  --------------------------------------------------------------- */
+  var MAIL = {
+    publicKey:  "",
+    serviceId:  "",
+    templateId: "",
+    to:   "ghuguskarpriya@gmail.com",
+    from: "pghuguskar10@gmail.com"
+  };
+
+  var SDK = "https://cdn.jsdelivr.net/npm/@emailjs/browser@4.4.1/dist/email.min.js";
+  var statusEl = document.getElementById("sent-status");
+  var actionsEl = document.getElementById("sent-actions");
+  var manualBtn = document.getElementById("send-manual");
+
+  function planBody(d) {
+    return "Yes \u2014 I'm coming. \u2764\uFE0F\n\n"
+         + "Day: " + d.day + "\n"
+         + "Plan: " + d.plan + "\n"
+         + "Pick you up at: " + d.pickup + ", at your place\n\n"
+         + "Sent from your invitation page.";
+  }
+
+  function mailtoLink(d) {
+    return "mailto:" + MAIL.to
+         + "?subject=" + encodeURIComponent("It's a date \u2014 " + d.day)
+         + "&body=" + encodeURIComponent(planBody(d));
+  }
+
+  function offerManualSend(d, note) {
+    statusEl.hidden = false;
+    statusEl.classList.remove("ok");
+    statusEl.textContent = note;
+    actionsEl.hidden = false;
+    manualBtn.onclick = function () { window.location.href = mailtoLink(d); };
+  }
+
+  function loadScript(src, done) {
+    var el = document.createElement("script");
+    el.src = src;
+    el.async = true;
+    el.onload = function () { done(true); };
+    el.onerror = function () { done(false); };
+    document.head.appendChild(el);
+  }
+
+  function sendPlan(d) {
+    statusEl.hidden = true;
+    statusEl.classList.remove("ok");
+    actionsEl.hidden = true;
+
+    if (!MAIL.publicKey || !MAIL.serviceId || !MAIL.templateId) {
+      offerManualSend(d, "One tap and she'll know \u{1F447}");
+      return;
+    }
+
+    statusEl.hidden = false;
+    statusEl.textContent = "Letting her know\u2026";
+
+    loadScript(SDK, function (ok) {
+      if (!ok || typeof emailjs === "undefined") {
+        offerManualSend(d, "Couldn't reach the mail service \u2014 send it yourself?");
+        return;
+      }
+      try {
+        emailjs.init({ publicKey: MAIL.publicKey });
+        emailjs.send(MAIL.serviceId, MAIL.templateId, {
+          to_email:    MAIL.to,
+          from_email:  MAIL.from,
+          answer:      "Yes",
+          plan_day:    d.day,
+          plan_time:   d.plan,
+          pickup_time: d.pickup
+        }).then(function () {
+          statusEl.textContent = "She knows. It's official. \u{1F48C}";
+          statusEl.classList.add("ok");
+          actionsEl.hidden = true;
+        }, function () {
+          offerManualSend(d, "That didn't go through \u2014 send it yourself?");
+        });
+      } catch (err) {
+        offerManualSend(d, "That didn't go through \u2014 send it yourself?");
+      }
+    });
+  }
+
   document.getElementById("back-letter").addEventListener("click", function () { show("letter"); });
   document.getElementById("back-pick").addEventListener("click", function () { show("pick"); });
 
