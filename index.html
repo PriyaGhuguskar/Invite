@@ -461,8 +461,9 @@
     "soch lo, ek baar aur",
     "bas ek yes, itni si baat",
     "main naraz ho jaungi, warning hai",
-    "ye button kaam nahi karta \u{1F937}",
-    "haar maano, yes daba do"
+    "haar maano, yes daba do",
+        "ye button kaam nahi karta \u{1F937}"
+
   ];
 
   var dodges = 0;
@@ -645,33 +646,24 @@
     show("letter");
   });
   /* ---------------------------------------------------------------
-     Telling her the answer
+     Getting the answer into an inbox
 
-     A plain HTML file has no way to send mail by itself, so this uses
-     EmailJS — it holds the Gmail connection, the page just asks it to send.
-     NEVER put a Gmail password in here; it would be readable by anyone.
+     FormSubmit does the sending, so this stays a plain static page —
+     no account, no API key, nothing secret sitting in this file.
 
-     To make it send from pghuguskar10@gmail.com:
-       1. emailjs.com → sign up as pghuguskar10@gmail.com
-       2. Email Services → connect Gmail (that account) → copy the Service ID
-       3. Email Templates → new template → To: ghuguskarpriya@gmail.com,
-          body can use {{answer}} {{plan_day}} {{plan_time}} {{pickup_time}}
-          → copy the Template ID
-       4. Account → General → copy the Public Key (it is meant to be public)
-       5. Paste all three below.
+     ONE-TIME STEP (do this once, before you send him the link):
+       1. Open this page yourself and book any slot.
+       2. Check ghuguskarpriya@gmail.com for a mail from FormSubmit.
+       3. Click "Activate Form" in it.
+     From then on every booking lands in that inbox automatically.
 
-     Left blank, the page instead offers a button that opens a ready-made
-     email — works everywhere, no signup, just needs one tap to send.
+     Heads up: browsers only allow this from a hosted page (GitHub Pages,
+     Netlify, any free host). Opened straight from a downloaded file it
+     falls back to the tap-to-send button instead, so nothing is lost.
   --------------------------------------------------------------- */
-  var MAIL = {
-    publicKey:  "",
-    serviceId:  "",
-    templateId: "",
-    to:   "ghuguskarpriya@gmail.com",
-    from: "pghuguskar10@gmail.com"
-  };
+  var MAIL_TO = "ghuguskarpriya@gmail.com";
+  var ENDPOINT = "https://formsubmit.co/ajax/" + MAIL_TO;
 
-  var SDK = "https://cdn.jsdelivr.net/npm/@emailjs/browser@4.4.1/dist/email.min.js";
   var statusEl = document.getElementById("sent-status");
   var actionsEl = document.getElementById("sent-actions");
   var manualBtn = document.getElementById("send-manual");
@@ -685,7 +677,7 @@
   }
 
   function mailtoLink(d) {
-    return "mailto:" + MAIL.to
+    return "mailto:" + MAIL_TO
          + "?subject=" + encodeURIComponent("It's a date \u2014 " + d.day)
          + "&body=" + encodeURIComponent(planBody(d));
   }
@@ -698,53 +690,53 @@
     manualBtn.onclick = function () { window.location.href = mailtoLink(d); };
   }
 
-  function loadScript(src, done) {
-    var el = document.createElement("script");
-    el.src = src;
-    el.async = true;
-    el.onload = function () { done(true); };
-    el.onerror = function () { done(false); };
-    document.head.appendChild(el);
-  }
-
   function sendPlan(d) {
-    statusEl.hidden = true;
+    statusEl.hidden = false;
     statusEl.classList.remove("ok");
+    statusEl.textContent = "Letting her know\u2026";
     actionsEl.hidden = true;
 
-    if (!MAIL.publicKey || !MAIL.serviceId || !MAIL.templateId) {
+    if (typeof fetch !== "function") {
       offerManualSend(d, "One tap and she'll know \u{1F447}");
       return;
     }
 
-    statusEl.hidden = false;
-    statusEl.textContent = "Letting her know\u2026";
+    // Don't leave anyone staring at "Letting her know…" forever.
+    var ctrl = ("AbortController" in window) ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 9000);
 
-    loadScript(SDK, function (ok) {
-      if (!ok || typeof emailjs === "undefined") {
-        offerManualSend(d, "Couldn't reach the mail service \u2014 send it yourself?");
-        return;
-      }
-      try {
-        emailjs.init({ publicKey: MAIL.publicKey });
-        emailjs.send(MAIL.serviceId, MAIL.templateId, {
-          to_email:    MAIL.to,
-          from_email:  MAIL.from,
-          answer:      "Yes",
-          plan_day:    d.day,
-          plan_time:   d.plan,
-          pickup_time: d.pickup
-        }).then(function () {
+    fetch(ENDPOINT, {
+      method: "POST",
+      signal: ctrl ? ctrl.signal : undefined,
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({
+        _subject: "It's a date \u2014 " + d.day,
+        _template: "table",
+        _captcha: "false",
+        Answer: "Yes \u2764\uFE0F",
+        Day: d.day,
+        Plan: d.plan,
+        "Pick him up at": d.pickup + " (one hour before)",
+        Answered: new Date().toLocaleString()
+      })
+    })
+      .then(function (r) {
+        return r.json().catch(function () { return { success: r.ok ? "true" : "false" }; });
+      })
+      .then(function (res) {
+        clearTimeout(timer);
+        if (res && String(res.success) === "true") {
           statusEl.textContent = "She knows. It's official. \u{1F48C}";
           statusEl.classList.add("ok");
           actionsEl.hidden = true;
-        }, function () {
-          offerManualSend(d, "That didn't go through \u2014 send it yourself?");
-        });
-      } catch (err) {
-        offerManualSend(d, "That didn't go through \u2014 send it yourself?");
-      }
-    });
+        } else {
+          offerManualSend(d, "Couldn't send it for you \u2014 one tap does it \u{1F447}");
+        }
+      })
+      .catch(function () {
+        clearTimeout(timer);
+        offerManualSend(d, "Couldn't send it for you \u2014 one tap does it \u{1F447}");
+      });
   }
 
   document.getElementById("back-letter").addEventListener("click", function () { show("letter"); });
